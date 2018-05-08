@@ -1,0 +1,147 @@
+#to reproduce same dataset every time
+set.seed(1212)
+library(Matrix)
+library(Rmosek)
+library(e1071)
+library(caret)
+require(randomForest)
+library(microbenchmark)
+
+
+#utilitiy function
+#splitting the dataset randomly
+
+data_split_index <-function(blogData){
+  
+  indexes = sample(1:nrow(blogData), size=0.2*nrow(blogData))
+}
+
+pre_train <- function(blogData,indexes){
+  
+  pre_train = blogData[-indexes,]
+}
+
+pre_test <-  function(blogData,indexes){
+  
+  pre_train = blogData[indexes,]
+}
+
+rmse <- function(Yhat,Y){
+  sqrt(mean((Yhat - Y)^2))
+}
+
+#Objective function =  (y ??? X??)**2
+# estimate of ?? = (t(X)%*%X)%*%t(X)%*%y
+
+
+solve.ols<-function(X,y, verb=1){
+  p<-dim(X)[2]  # number of parameters of interest
+  
+  
+  
+  #correspondence between OLS and the Quadratic Program
+  xx<-crossprod(X) # X'X=Q variable in the Quadratic program
+  c<--crossprod(X,y) # X'y=c variable in the Quadratic program
+  xx2<-xx
+  xx2[upper.tri(xx)]<-0 #mosek needs Q to be  triangular
+  idx <- which(xx2 != 0, arr.ind=TRUE) #index of the nonzero elements of Q
+  
+  #problem definition in Mosek
+  qo1<-list() #empty list that contains the QP problem
+  qo1$sense<-"min" #problem sense
+  qo1$c<-as.vector(c) #objective coefficients
+  qo1$qobj<-list(i = idx[,1],
+                 j = idx[,2],
+                 v = xx2[idx] ) #the Q matrix is imputed by the row indexes i, the col indexes j and the values v that define the Q matrix
+  qo1$A<-Matrix(rep(0,p), nrow=1,byrow=TRUE,sparse=TRUE) #constrain matrix A is a null matrix in this case
+  blx <-c(min(X[,1]),min(X[,2]),min(X[,3]),min(X[,4]),min(X[,5]),min(X[,6]),min(X[,7]),min(X[,8]),min(X[,9]),min(X[,10]))
+  bux <- c(max(X[,1]),max(X[,2]),max(X[,3]),max(X[,4]),max(X[,5]),max(X[,6]),max(X[,7]),max(X[,8]),max(X[,9]),max(X[,10])) 
+  qo1$bc<-rbind(blc=0, buc= Inf) #constraint bounds
+  qo1$bx<-rbind(blx,bux) #parameter bounds
+  
+  r<-mosek(qo1, opts = list(verbose = verb)) #call mosek solver
+  return(r)
+}
+
+
+
+
+
+#loading the dataset
+
+data <- read.csv('C:/Users/bhumi/Desktop/Abhijeet/Coursework/Spring/ML/Dataset/blogData_train.csv',header=TRUE,sep=',')
+
+#random sampling.
+
+blogData <- data[sample(nrow(data), 5000), ]
+
+index <- data_split_index(blogData)
+
+pre_train <- pre_train(blogData,index)
+pre_test <- pre_test(blogData,index)
+
+# splitting the data in target and feature
+
+train_x = pre_train[,51:60]
+train_y = pre_train[,281]
+test_x = pre_test[,51:60]
+test_y = pre_test[,281]
+
+
+#scaling the dataset for better performence
+scaled.train_x = scale(train_x,center = TRUE)
+scaled.test_x = scale(test_x,center = TRUE)
+
+#creating new dataset
+train <- as.data.frame(cbind(scaled.train_x,train_y))
+test <- as.data.frame(cbind(scaled.test_x,test_y))
+
+#summarizing the train dataset
+summary(train)
+
+#linear regression fitting
+
+lm_fit = lm(formula = train_y ~ X2.0.1+X2.0.2+X0.0.14+X2.0.3+X0.0.15+X0.0.16+X0.0.17+X0.0.18+X2.0.4+X0.0.19,data=train)
+
+summary(lm_fit)
+
+plot(lm_fit)
+prediction <- predict(lm_fit, test)
+
+rmse(test$test_y, prediction)
+
+#buidling more models
+# b) nonlinear algorithms
+
+#random forest
+
+blogData.rf=randomForest(train_y ~ . , data = train)
+
+plot(blogData.rf)
+
+predict(blogData.rf,data=test) -> Prediction
+
+rmse(test$test_y, Prediction)
+
+
+#describing objective function for mosek
+
+
+solve.ols(scaled.train_x,train_y)
+
+microbenchmark::microbenchmark(
+  lm(formula=test_y ~ X2.0.1+X2.0.2+X0.0.14+X2.0.3+X0.0.15+X0.0.16+X0.0.17+X0.0.18+X2.0.4+X0.0.19,data=test),
+  solve.ols(scaled.test_x,test_y)
+)
+
+#LM equation for rmosek
+
+YhatMosek <- (.1010244*(test$X2.0.1) + 8.8428568*(test$X2.0.2) + 4.7945285*(test$X0.0.14) + (-0.3667831)*(test$X2.0.3) + 8.9850311*(test$X2.0.4) + (-0.3297526)*(test$X0.0.15) + 0.5401447*(test$X0.0.16)+ 0.5254287*(test$X0.0.17) + 1.6298500*(test$X0.0.18) + 1.2841602*(test$X0.0.19))
+
+rmse(YhatMosek,test$test_y)
+
+
+
+
+
+
